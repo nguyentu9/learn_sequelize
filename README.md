@@ -61,7 +61,7 @@ console.log(User === sequelize.models.User); // true
 
 -   `sync({ force: true })` và `sync({ alter: true })` có thể gây hư hỏng. Vì vậy, **`không khuyến khích`** sử dụng cho production-level. Thay vào đó, đồng bộ nên thực hiện với khái niệm nâng cao **`Migrations`**
 
-### **TIMESTAMP**
+## **TIMESTAMP**
 
 -   Mặc định, Sequelize tự động thêm trường `createAt` và `updateAt` vào mỗi model, dùng kiểu dữ liệu DataTypes.DATE. Những trường đó tự đồng update mỗi khi thực hiện tạo và cập nhật.
 
@@ -100,7 +100,7 @@ sequelize.define('User', {
 })
 ```
 
-### **KHỞI TẠO TRƯỜNG (CỘT) VỚI CÚ PHÁP VIẾT TẮT**
+## **KHỞI TẠO TRƯỜNG (CỘT) VỚI CÚ PHÁP VIẾT TẮT**
 
 -   Nếu chỉ có một thuộc tính với kiểu dữ liệu cụ thể, thì ta có thể viết tắt như sau:
 
@@ -118,7 +118,7 @@ sequelize.define("User", {
 });
 ```
 
-### **GIÁ TRỊ MẶC ĐỊNH**
+## **GIÁ TRỊ MẶC ĐỊNH**
 
 -   Mặc định, Sequelize giả định giá trị của một cột là `NULL`. Để có thể thay đổi bằng cách chỉ định `defaultValue`
 
@@ -143,7 +143,7 @@ sequelize.define("Foo", {
 });
 ```
 
-### **KIỂU DỮ LIỆU**
+## **KIỂU DỮ LIỆU**
 
 -   Mỗi cột được định nghĩa trong model phải có kiểu dữ liệu. Sequelize cung cấp một số kiểu dữ liệu dựng sẳn. Để truy cập bạn phải import `DateTypes`:
 
@@ -151,7 +151,7 @@ sequelize.define("Foo", {
 const { DataTypes } = require("sequelize");
 ```
 
-**Strings**
+### **Strings**
 
 ```
 DataTypes.STRING             // VARCHAR(255)
@@ -161,13 +161,13 @@ DataTypes.TEXT               // TEXT
 DataTypes.TEXT('tiny')       // TINYTEXT
 ```
 
-**Boolean**
+### **Boolean**
 
 ```
 DataTypes.BOOLEAN            // TINYINT(1)
 ```
 
-**Numbers**
+### **Numbers**
 
 ```
 DataTypes.INTEGER            // INTEGER
@@ -186,7 +186,7 @@ DataTypes.DECIMAL            // DECIMAL
 DataTypes.DECIMAL(10, 2)     // DECIMAL(10,2)
 ```
 
-**Unsigned & Zerofill integers - MySQL/MariaDB only**
+### **Unsigned & Zerofill integers - MySQL/MariaDB only**
 
 -   Trong MySQL và MariaDB, kiểu `INTEGER`, `BIGINT`, `FLOAT` và `DOUBLE` có thể gán `unsigned` hoặc `zerofill` (hoặc cả hai), như sau:
 
@@ -194,6 +194,122 @@ DataTypes.DECIMAL(10, 2)     // DECIMAL(10,2)
 DataTypes.INTEGER.UNSIGNED
 DataTypes.INTEGER.ZEROFILL
 DataTypes.INTEGER.UNSIGNED.ZEROFILL
-// You can also specify the size i.e. INTEGER(10) instead of simply INTEGER
-// Same for BIGINT, FLOAT and DOUBLE
+// Bạn có thể định nghĩa kích thước INTEGER(10) thay vì đơn giản là INTEGER
+// giống với BIGINT, FLOAT và DOUBLE
+```
+
+### **Dates**
+
+```
+DataTypes.DATE       // DATETIME for mysql / sqlite, TIMESTAMP WITH TIME ZONE for postgres
+DataTypes.DATE(6)    // DATETIME(6) for mysql 5.6.4+. Fractional seconds support with up to 6 digits of precision
+DataTypes.DATEONLY   // DATE without time
+```
+
+### **UUIDs**
+
+-   Đối với UUIDs, dùng `DateTypes.UUID`. Nó trở thành kiểu dữ liệu `UUID` cho PostgreSQL và SQLite, và `CHAR(36)` cho MySQL. Sequelize có thể tạo tự động UUIDs cho những trường này, đơn giản dùng `DataTypes.UUIDv1` hoặc `DataTypes.UUIDv4` làm giá trị mặc định.
+
+```
+{
+  type: DataTypes.UUID,
+  defaultValue: DataTypes.UUIDV4 // Or DataTypes.UUIDV1
+}
+```
+
+### **Column Options**
+
+-   Khi định nghĩa một cột, bên cạnh định nghĩa `type` cho cột, và `allowNull` và `defaultValue` được đề cập ở trên, có rất nhiều tuỳ chọn có thể dùng.
+
+```javascript
+const { Model, DataTypes, Deferrable } = require('sequelize');
+
+class Foo extends Model {}
+Foo.init({
+
+    // khi khởi tạo sẽ tự tự động gán flag là true nếu không được gán giá trị
+    flag: {type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true }
+
+    // giá trị mặc định là thời gian hiện tại
+    myDate: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
+
+    // đặt allowNull thành false tự động thêm NOT NULL vào cột, có nghĩa là sẽ có một lỗi từ DB khi truy vấn được thực hiện nếu cột là NULL. Nếu bạn muốn kiểm tra rằng giá trị là NOT NULL trước khi truy vấn DB, tìm phần validations bên dưới.
+    title: { type: DataTypes.STRING, allowNull: false },
+
+    // Tạo 2 objects cùng giá trị sẽ báo lỗi. Thuộc tính unique có thể
+    // là cả boolean và string. Nếu bạn cung cấp cùng một chuỗi cho nhiều cột,
+    // chúng sẽ tạo thành một composite unique key.
+    uniqueOne: { type: DataTypes.STRING, unique: 'compositeIndex'},
+    uniqueTwo: { type: DataTypes.INTEGER, unique: 'compositeIndex'},
+
+    // Thuộc tính unique đơn giản là một viết tắt để tạo một unique constraint
+    someUnique: { type: DataTypes.STRING, unique: true },
+
+    // Tiếp tục đọc thêm thông tin về primary key.
+    identifier: { type: DataTypes.STRING, primaryKey: true },
+
+    // autoIncrement dùng để tạo auto_incrementing integer columns
+    incrementMe: { type: DataTypes.INTEGER, autoIncrement: true },
+
+    //Bạn có thể chỉ định một tên tuỳ chỉnh cho cột qua thuộc tính `field`
+    fieldWithUnderscores: { type: DataTypes.STRING, field: 'field_with_underscores'},
+
+    // Có thể tạo khoá ngoại:
+    bar_id: {
+        type: DataTypes.INTEGER,
+
+        references: {
+            // Đây là một liên kết đến model khác
+            model: Bar,
+
+            // Đây là tên cột của model được liên kết
+            key: 'id',
+        }
+    },
+
+    // Comments có thể thêm vào cột trong MySQL, MariaDB, PostgreSQL and MSSQL
+    commentMe: {
+        type: DataTypes.INTEGER,
+        comment: 'This is a column name that has a comment'
+    }
+}, {
+    sequelize,
+    modelName: 'foo',
+
+    // Dùng `unique: true` trên một thuộc tính ở trên hoàn toàn giống với tạo index trong model's options
+    indexes: [{ unique: true, fields: ['someUnique']}]
+})
+```
+
+## **Tận dụng Models thành class**
+
+-   Sequelize models là ES6 classes. Bạn có thể dễ dàng thêm tuỳ chỉnh instance và class level methods.
+
+```javascript
+class User extends Model {
+    static classLevelMethod() {
+        return "foo";
+    }
+
+    instanceLevelMethod() {
+        return "bar";
+    }
+
+    getFullname() {
+        return [this.firstname, this.lastname].join(" ");
+    }
+}
+
+User.init(
+    {
+        firstname: Sequelize.TEXT,
+        lastname: Sequelize.TEXT,
+    },
+    { sequelize }
+);
+
+console.log(User.classLevelMethod()); // 'foo'
+const user = User.build({ firstname: "Jane", lastname: "Doe" });
+console.log(user.instancelevelMethod()); // 'bar'
+console.log(user.getFullName()); // 'Jane Doe'
 ```
