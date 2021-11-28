@@ -487,3 +487,529 @@ await jane.increment(["age", "cash"], { by: 2 });
 ```
 
 -   Giảm (decrement) hoạt động cùng một cách.
+
+# Model Querying - Basics
+
+## Simple INSERT queries
+
+-   Có thể định nghĩa thuộc tính nào được gán trong phương thức `create`. Nó có thể đặc biệc hữu ích nếu bạn tạo csdl dựa trên một form cái mà có thể được điền bởi người dùng.
+-   VD: Sử dụng cái này có thể cho phép bạn giới hạn `User` model chỉ gán một `username` nhưng không gán admin flag( isAdmin);
+
+```javascript
+const user = await User.create(
+    {
+        username: "alice123",
+        isAdmin: true,
+    },
+    { fields: ["username"] }
+);
+// Đảm bảo mặc định isAdmin là false
+console.log(user.username); // alice123
+console.log(user.isAdmin); // false
+```
+
+## Chỉ định một số thuộc tính cho câu SELECT
+
+-   Để chọn một số thuộc tính, bạn có thể dùng `atrributes`:
+
+```javascript
+Model.findAll({
+    attributes: ["foo", "bar"],
+});
+
+// SELECT foo, bar FROM ...
+```
+
+## Thuộc tính có thể được đổi tên bằng cách dùng nested array:
+
+```javascript
+Model.findAll({
+    attributes: ["foo", ["bar", "baz"], "qux"],
+});
+// SELECT foo, bar AS baz, qux FROM ...
+```
+
+-   Bạn có thể dùng `sequelize.fn` để thực hiện `aggregations`
+
+```javascript
+Model.findAll({
+    attributes: [
+        "foo",
+        [sequelize.fn("COUNT", sequelize.col("hats")), "n_hats"],
+        "bar",
+    ],
+});
+// SELECT foo, COUNT(hats) AS n_hats, bar FROM ...
+```
+
+-   Khi sử dụng `aggregation function`, bạn phải cung cấp một alias để có thể truy cập nó từ `model`. Trong ví dụ ở trên bạn có lấy số `hats` với `instance.n_hats`
+-   Đôi khi nó có thể gây mệt mỏi khi liệt kê tất cả thuộc tính của một `model` nếu bạn chỉ muốn thêm một `aggregation`:
+
+```javascript
+// Đây là cách mệt mỏi để có được số hats (cùng với mỗi cột)
+Model.findAll({
+    attributes: [
+        "id",
+        "foo",
+        "bar",
+        "baz",
+        "qux",
+        "hats", // Chúng ta liệt kê tất cả thuộc tính...
+        [sequelize.fn("COUNT", sequelize.col("hats")), "n_hats"], // Để thêm aggregation
+    ],
+});
+
+// Đây là cách ngắn hơn, và ít lỗi hơn bởi vì nó vẫn hoạt động nếu bạn thêm/bỏ bớt thuộc tính từ `model` của bạn sau này
+Model.findAll({
+    attributes: {
+        include: [[sequelize.fn("COUNT", sequelize.col("hats")), "n_hats"]],
+    },
+});
+// SELECT id, foo, bar, baz, qux, hats, COUNT(hats) AS n_hats FROM ...
+```
+
+-   Tương tự, nó cũng có thể bỏ bớt một vài thuộc tính được chọn
+
+```javascript
+Model.findAll({
+    attributes: { exclude: ["baz"] },
+});
+//-- Assuming all columns are 'id', 'foo', 'bar', 'baz' and 'qux'
+//SELECT id, foo, bar, qux FROM ...
+```
+
+## Áp dụng mệnh đề WHERE
+
+-   `where` dùng để lọc câu truy vấn. Có nhiều toán tử dùng cho mệnh đề `where`, sẳn dùng là ký tự từ `Op`.
+
+### Cơ bản
+
+```javascript
+Post.findAll({
+    where: {
+        authorId: 2,
+    },
+});
+// SELECT * FROM post WHERE authorId = 2
+```
+
+-   Quan sát rằng không có toán tử (từ `Op`) được truyền rõ rằng, vì vậy Sequelize giả định mặc định là một so sánh bằng. Code phía trên tương đương với:
+
+```javascript
+const { Op } = require("sequelize");
+Post.findAll({
+    where: {
+        authorId: {
+            [Op.eq]: 2,
+        },
+    },
+});
+// SELECT * FROM Post WHERE authorId = 2;
+```
+
+-   Nhiều kiểm tra có thể truyền như sau:
+
+```javascript
+Post.findAll({
+    where: {
+        authorId: 12,
+        status: "active",
+    },
+});
+```
+
+-   Giống với Sequelize được suy ra toán tử `Op.eq` trong ví dụ đầu tiên, ở đâu Sequelize suy ra rằng người gọi muốn một `AND` cho 2 kiểm tra. Code ở trên tương đương với:
+
+```javascript
+const { Op } = require("sequelize");
+Post.findAll({
+    where: {
+        [Op.and]: [{ authorId: 12 }, { status: "active" }],
+    },
+});
+// SELECT * FROM post WHERE authorId = 12 AND status = 'active';
+```
+
+-   `OR` có thể được thực hiện theo cách tương tự:
+
+```javascript
+const { Op } = require("sequelize");
+Post.findAll({
+    where: {
+        [Op.or]: [{ authorId: 12 }, { authorId: 13 }],
+    },
+});
+// SELECT * FROM post WHERE authorId = 12 OR authorId = 13;
+```
+
+-   Từ khi ở trên `OR` kèm theo cùng field, Sequelize cho phép bạn sử dụng cấu trúc hơi khác cái mà dễ đọc hơn và tạo ra cùng một hành vi:
+
+```js
+const { Op } = require("sequelize");
+Post.destroy({
+    where: {
+        authorId: {
+            [Op.or]: [12, 13],
+        },
+    },
+});
+// DELETE FROM post WHERE authorId = 12 OR authorId = 13;
+```
+
+## Một số toán tử
+
+```js
+const { Op } = require("sequelize");
+Post.findAll({
+    where: {
+        [Op.and]: [{ a: 5 }, { b: 6 }], // (a = 5) AND (b = 6)
+        [Op.or]: [{ a: 5 }, { b: 6 }], // (a = 5) OR (b = 6)
+        someAttribute: {
+            // Basics
+            [Op.eq]: 3, // = 3
+            [Op.ne]: 20, // != 20
+            [Op.is]: null, // IS NULL
+            [Op.not]: true, // IS NOT TRUE
+            [Op.or]: [5, 6], // (someAttribute = 5) OR (someAttribute = 6)
+
+            // Using dialect specific column identifiers (PG in the following example):
+            [Op.col]: "user.organization_id", // = "user"."organization_id"
+
+            // Number comparisons
+            [Op.gt]: 6, // > 6
+            [Op.gte]: 6, // >= 6
+            [Op.lt]: 10, // < 10
+            [Op.lte]: 10, // <= 10
+            [Op.between]: [6, 10], // BETWEEN 6 AND 10
+            [Op.notBetween]: [11, 15], // NOT BETWEEN 11 AND 15
+
+            // Other operators
+
+            [Op.all]: sequelize.literal("SELECT 1"), // > ALL (SELECT 1)
+
+            [Op.in]: [1, 2], // IN [1, 2]
+            [Op.notIn]: [1, 2], // NOT IN [1, 2]
+
+            [Op.like]: "%hat", // LIKE '%hat'
+            [Op.notLike]: "%hat", // NOT LIKE '%hat'
+            [Op.startsWith]: "hat", // LIKE 'hat%'
+            [Op.endsWith]: "hat", // LIKE '%hat'
+            [Op.substring]: "hat", // LIKE '%hat%'
+            [Op.iLike]: "%hat", // ILIKE '%hat' (case insensitive) (PG only)
+            [Op.notILike]: "%hat", // NOT ILIKE '%hat'  (PG only)
+            [Op.regexp]: "^[h|a|t]", // REGEXP/~ '^[h|a|t]' (MySQL/PG only)
+            [Op.notRegexp]: "^[h|a|t]", // NOT REGEXP/!~ '^[h|a|t]' (MySQL/PG only)
+        },
+    },
+});
+```
+
+## Cú pháp viết tắt cho `Op.in`
+
+-   Truyền trực tiếp một mảng vào `where` sẽ dùng toán tử `IN` không tường minh:
+
+```js
+Post.findAll({
+    where: {
+        id: [1, 2, 3], // Giống với `id: { [Op.in]: [1,2,3]}`
+    },
+});
+```
+
+## Kết hợp logic với toán tử
+
+-   Toán tử `Op.and`, `Op.or` và `Op.not` có thể dùng để tạo ra biểu thức so sánh logic phức tạp tuỳ ý.
+
+```js
+const { Op } = require('sequelize')
+Foo.findAll({
+    where: {
+        rank: {
+            [Op.or]: {
+                [Op.lt]: 1000,
+                [Op.eq]: null
+            }
+        },
+        // rank < 1000 OR rank is NULL
+
+        {
+            createAt: {
+                [Op.lt]: new Date(),
+                [Op.gt]: new Date(new Date() - 24 * 60 * 60 * 1000)
+            }
+        },
+        // createAt < [timestamp] AND createAt > [timestamp]
+
+        {
+            [Op.or]: [
+                {
+                    title: {
+                        [Op.like]: 'Boat%'
+                    }
+                },
+                {
+                    description: {
+                        [Op.like]: '%boat%'
+                    }
+                }
+            ]
+        }
+        // title LIKE 'Boat%' OR description LIKE '%boat%'
+    }
+});
+```
+
+## Ví dụ với Op.not
+
+```js
+Project.findAll({
+    where: {
+        name: 'Some object',
+        [Op.not]: {
+            { id: [1,2,3]},
+            {
+                description: {
+                    [Op.like]: 'Hello%'
+                }
+            }
+        }
+    }
+});
+```
+
+-   Code ở trên sẽ tạo ra:
+
+```sql
+SELECT *
+FROM `Projects`
+WHERE (
+  `Projects`.`name` = 'Some Project'
+  AND NOT (
+    `Projects`.`id` IN (1,2,3)
+    AND
+    `Projects`.`description` LIKE 'Hello%'
+  )
+)
+```
+
+## Truy vấn nâng cao với funcions(không chỉ những cột)
+
+-   Cái bạn muốn đạt được giống như `WHERE char_length('content') = 7` ?
+
+```js
+Post.findAll({
+    where: sequelize.where(
+        sequelize.fn("char_length", seuquelize.col("content")),
+        7
+    ),
+});
+// SELECT ... FROM posts as post WHERE char_length('content') = 7
+```
+
+-   Lưu ý việc sử dụng các phương thức `sequize.fn` và `sequize.col`, các phương thức này sẽ được sử dụng để chỉ định một lệnh gọi hàm SQL và một cột, tương ứng. Các phương thức này nên được sử dụng thay vì truyền một chuỗi thuần túy (chẳng hạn như char_length (nội dung)) vì Sequelize cần xử lý tình huống này theo cách khác (ví dụ: sử dụng các cách tiếp cận thoát ký hiệu khác).
+
+```js
+Post.findAll({
+    where: {
+        [Op.or]: [
+            sequelize.where(sequelize.fn('char_length', sequelize.col('content')), 7),
+            {
+                content: {
+                    [Op.like]: 'Hello%'
+                }
+            },
+            [Op.and]: [
+                { status: 'draft'},
+                sequelize.where(sequelize.fn('char_length'), sequelize.col('content')), {
+                    [Op.gt]: 10
+                }
+            ]
+        ]
+    }
+})
+```
+
+-   Đoạn code trên tương đương:
+
+```sql
+SELECT
+  ...
+FROM "posts" AS "post"
+WHERE (
+  char_length("content") = 7
+  OR
+  "post"."content" LIKE 'Hello%'
+  OR (
+    "post"."status" = 'draft'
+    AND
+    char_length("content") > 10
+  )
+)
+```
+
+## Simple UPDATE queries
+
+-   Truy vấn Update cũng chấp nhận tuỳ chọn `where`:
+
+```js
+// Đổi mọi người không có tên thành 'Doe'
+await User.update(
+    { lastName: "Doe" },
+    {
+        where: {
+            lastName: null,
+        },
+    }
+);
+```
+
+## Simple DELETE queries
+
+-   Truy vấn Delete cũng chấp nhận tuỳ chọn `where`:
+
+```js
+// Xoá tất cả mọi người có tên là 'Jane'
+await User.destroy({
+    where: {
+        firstName: "Jane",
+    },
+});
+```
+
+-   Để xoá mọi thứ SQL `TRUNCATE` có thể sử dụng:
+
+```js
+// Truncate the table
+await User.destroy({
+    truncate: true,
+});
+```
+
+## Create in bulk
+
+-   Sequelize cung cấp phương thức `Model.bulkCreate` cho phép tạo nhiều records cùng một lúc, chỉ với 1 câu truy vấn.
+-   Cách sử dụng `Model.bulkCreate` khá giống với `Model.create`, bằng cách nhận vào 1 mảng object thay vì 1 object
+
+```js
+const captains = await Captain.bulkCreate([
+    { name: "Jack Sparrow" },
+    { name: "Davy Jones" },
+]);
+console.log(captains.length); //2
+console.log(captains[0] instanceof User); // true
+console.log(captains[0].name); // 'Jack Sparrow'
+console.log(captains[0].id);
+```
+
+-   Tuy nhiên, mặc định, `bulkCreate` sẽ không chạy `validations` cho mỗi object được tạo (cái mà `create` làm). Để `buildCreate` chạy những `validations` đó, bạn phải truyền `validate: true`. Nó sẽ giảm hiệu năng. Dùng ví dụ sau:
+
+```js
+// Nó sẽ ko báo lỗi, cả 2 instance sẽ được tạo
+(async () => {
+    await sequelize.sync({ force: true });
+    await Foo.bulkCreate([{ name: "abc123" }, { name: "name too long" }]);
+})();
+
+// Nó sẽ báo lỗi, ko có gì được tạo ra
+(async () => {
+    await Foo.bulkCreate([{ name: "abc123" }, { name: "" }], {
+        validate: true,
+    });
+})();
+```
+
+-   Nếu bạn nhận giá trị trực tiêp từ người dùng, nó có thể có lợi cho việc giới hạn những cột bạn sự thực muốn thêm. Để hỗ trợ việc đó, `bulkCreate()` nhận một tuỳ chọn `fields`, một mảng định nghĩa những trường nào được xem xét (còn lại sẽ bị bỏ qua)
+
+```js
+await User.bulkCreate([{ username: "foo" }, { username: "bar", admin: true }], {
+    fields: ["username"],
+});
+```
+
+## Ordering và Grouping
+
+-   Sequelize cung cấp `order` và `group` để hoạt động với `ORDER BY` và `GROUP BY`.
+
+### Ordering
+
+-   Tuỳ chọn `order` lấy một mảng các phần tử để sắp xếp truy vấn bằng hoặc một phương thức sequelize.
+-   Những bản thân những phần tử này là mảng theo mẫu `[column, direction]`. Cột sẽ được escapsed chính xác và direction sẽ được kiểm tra trong danh sách direction hợp lệ (như `ASC`, `DESC`, `NULLS FIRST`, etc).
+
+```js
+Subtask.findAll({
+    order: [
+        // Will escape title and validate DESC against a list of valid direction parameters
+        ["title", "DESC"],
+
+        // Sẽ sắp xếp theo max(age)
+        sequelize.fn("max", sequelize.col("age")),
+
+        // Sẽ sắp xếp theo max(age) DESC
+        [sequelize.fn("max", sequelize.col("age")), "DESC"],
+
+        // Sẽ sắp xếp theo orderfunction('col1', 12, 'lalala') DESC
+        [
+            sequelize.fn("otherfunction", sequelize.col("col1"), 12, "lalala"),
+            "DESC",
+        ],
+
+        // Sẽ sắp xêp theo createAt của model được liên kết dùng tên model như là tên của liên kết
+        [Task, "createAt", "DESC"],
+
+        // Sẽ sắp xếp thông qua createAt của model được liên kết dùng tên của model như là tên của liên kết
+        [Task, Project, "createAt", "DESC"],
+
+        // Sẽ sắp xếp theo createAt của model được liên kết bằng cách dùng tên của liên kết.
+        ["Task", "Project", "createAt", "DESC"],
+
+        // Sẽ sắp xêp theo createAt của model được liên kết bằng cách dùng một object liên kết. (Phương pháp ưu thích)
+        [Subtask.associations.Task, "createAt", "DESC"],
+
+        //Sẽ sắp xếp theo createAt của model được liên kết lồng sử dụng object liên kết (Phương pháp ưu thích).
+        [
+            Subtask.associations.Task,
+            Task.associations.Project,
+            "createAt",
+            "DESC",
+        ],
+
+        // Sẽ sắp xếp theo createAt của model được liên kết bằng cách dùng một object liên kết đơn giản
+        [{ model: Task, as: "Task" }, "createAt", "DESC"],
+
+        // Sẽ sắp xếp theo createAt của model được liên kết lồng bằng cách dùng một object liên kết đơn giản
+        [
+            { model: Task, as: "Task" },
+            { model: Project, as: "Project" },
+            "createAt",
+            "DESC",
+        ],
+    ],
+
+    // Sẽ sắp xếp theo tuổi lớn nhất giảm dần
+    order: sequelize.literal("max(age) DESC"),
+
+    // Sẽ sắp xếp theo tuổi lớn nhất tăng dần giả định tăng dần là sắp xếp mặc định khi direction bị bỏ qua
+    order: sequelize.fn("max", sequelize.col("age")),
+
+    // Sẽ sắp xếp theo tuổi tăng dần giả định tăng dần là sắp xếp mặc định khi direction bị bỏ qua
+    order: sequelize.col("age"),
+
+    // Will order randomly based on the dialect (instead of fn('RAND') or fn('RANDOM'))
+    order: sequelize.random(),
+});
+
+Foo.findOne({
+    order: [
+        // Sẽ trả về 'name'
+        ["name"],
+
+        // Sẽ trả về 'username' DESC
+        ["username", "DESC"],
+
+        // sẽ trả về max('age')
+        sequelize.fn("max", sequelize.col("age")),
+
+        // sẽ trả
+    ],
+});
+```
